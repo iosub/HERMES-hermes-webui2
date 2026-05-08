@@ -2499,6 +2499,8 @@ def _handle_plugins(handler, parsed) -> bool:
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
+    embed_shell = (parse_qs(parsed.query or '').get('embed') or [''])[0].strip().lower() in {'1', 'true', 'yes', 'on'}
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -2517,6 +2519,7 @@ def handle_get(handler, parsed) -> bool:
             handler,
             inject_extension_tags(html),
             content_type="text/html; charset=utf-8",
+            allow_embedding=embed_shell,
         )
 
     if parsed.path == "/login":
@@ -2545,7 +2548,12 @@ def handle_get(handler, parsed) -> bool:
                 "{{LOGIN_CONN_FAILED}}", _html.escape(_login_strings["conn_failed"])
             )
         )
-        return t(handler, _page, content_type="text/html; charset=utf-8")
+        return t(
+            handler,
+            _page,
+            content_type="text/html; charset=utf-8",
+            allow_embedding=embed_shell,
+        )
 
     if parsed.path == "/api/auth/status":
         from api.auth import is_auth_enabled, parse_cookie, verify_session

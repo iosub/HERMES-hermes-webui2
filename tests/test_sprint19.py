@@ -92,6 +92,32 @@ def test_security_headers_on_json():
     assert headers.get("Referrer-Policy") == "same-origin"
 
 
+def test_index_embed_opt_in_omits_frame_deny_only_for_shell_html():
+    """The shell HTML may opt into embedding for trusted local viewers via ?embed=1."""
+    req = urllib.request.Request(BASE + "/?embed=1")
+    with urllib.request.urlopen(req, timeout=10) as r:
+        html = r.read().decode()
+        headers = dict(r.headers)
+        assert r.status == 200
+        assert "<title>Hermes" in html
+        assert headers.get("X-Content-Type-Options") == "nosniff"
+        assert headers.get("Referrer-Policy") == "same-origin"
+        assert headers.get("X-Frame-Options") is None
+
+
+def test_login_embed_opt_in_omits_frame_deny_only_for_shell_html():
+    """The login shell should support the same trusted embed opt-in."""
+    req = urllib.request.Request(BASE + "/login?embed=1")
+    with urllib.request.urlopen(req, timeout=10) as r:
+        html = r.read().decode()
+        headers = dict(r.headers)
+        assert r.status == 200
+        assert "Hermes" in html
+        assert headers.get("X-Content-Type-Options") == "nosniff"
+        assert headers.get("Referrer-Policy") == "same-origin"
+        assert headers.get("X-Frame-Options") is None
+
+
 def test_security_headers_on_health():
     """Health endpoint should include security headers."""
     d, status, headers = get("/health")

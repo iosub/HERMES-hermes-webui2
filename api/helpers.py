@@ -36,10 +36,11 @@ def safe_resolve(root: Path, requested: str) -> Path:
     return resolved
 
 
-def _security_headers(handler):
+def _security_headers(handler, *, allow_embedding: bool=False):
     """Add security headers to every response."""
     handler.send_header('X-Content-Type-Options', 'nosniff')
-    handler.send_header('X-Frame-Options', 'DENY')
+    if not allow_embedding:
+        handler.send_header('X-Frame-Options', 'DENY')
     handler.send_header('Referrer-Policy', 'same-origin')
     handler.send_header(
         'Content-Security-Policy',
@@ -93,14 +94,14 @@ def j(handler, payload, status: int=200, extra_headers: dict=None) -> None:
     handler.wfile.write(body)
 
 
-def t(handler, payload, status: int=200, content_type: str='text/plain; charset=utf-8') -> None:
+def t(handler, payload, status: int=200, content_type: str='text/plain; charset=utf-8', *, allow_embedding: bool=False) -> None:
     """Send a plain text or HTML response."""
     body = payload if isinstance(payload, bytes) else str(payload).encode('utf-8')
     handler.send_response(status)
     handler.send_header('Content-Type', content_type)
     handler.send_header('Content-Length', str(len(body)))
     handler.send_header('Cache-Control', 'no-store')
-    _security_headers(handler)
+    _security_headers(handler, allow_embedding=allow_embedding)
     handler.end_headers()
     handler.wfile.write(body)
 
