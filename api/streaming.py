@@ -4940,8 +4940,22 @@ def _merge_display_messages_after_agent_result(previous_display, previous_contex
                 previous_user_tail,
                 previous_context=previous_context,
             )
-        candidates = _strip_replayed_prefix(previous_display, candidates)
-        candidates = _strip_replayed_prefix(previous_context, candidates)
+        current_user_key = _message_identity({'role': 'user', 'content': msg_text})
+        current_user_in_candidates = any(
+            _message_identity(m) == current_user_key or _looks_like_current_user_turn(m, msg_text)
+            for m in candidates
+        )
+        assistant_or_tool_only_candidates = bool(candidates) and all(
+            _is_context_compression_marker(m)
+            or (
+                isinstance(m, dict)
+                and m.get('role') in ('assistant', 'tool')
+            )
+            for m in candidates
+        )
+        if not (assistant_or_tool_only_candidates and not current_user_in_candidates):
+            candidates = _strip_replayed_prefix(previous_display, candidates)
+            candidates = _strip_replayed_prefix(previous_context, candidates)
     else:
         current_user_idx = _find_current_user_turn(result_messages, msg_text)
         turn_candidates = result_messages[current_user_idx:] if current_user_idx is not None else []
@@ -5106,7 +5120,14 @@ def _session_lacks_final_assistant_answer(messages) -> bool:
     return True
 
 
-def _merged_transcript_lacks_final_assistant_answer(previous_display, previous_context, result_messages, msg_text, source: str = "webui") -> bool:
+def _merged_transcript_lacks_final_assistant_answer(
+    previous_display,
+    previous_context,
+    result_messages,
+    msg_text,
+    source: str = "webui",
+    drop_replayed_assistant: bool = False,
+) -> bool:
     """Return True when the current turn still lacks a final assistant answer."""
     previous_display = list(previous_display or [])
     merged_messages = _merge_display_messages_after_agent_result(
@@ -5131,21 +5152,24 @@ def _merged_transcript_lacks_final_assistant_answer(previous_display, previous_c
         current_user_idx = len(merged_messages) - 1
 
     current_user_key = _message_identity(merged_messages[current_user_idx])
-    prior_id_set = {
-        _message_identity(msg)
-        for msg in merged_messages[:current_user_idx]
-        if isinstance(msg, dict)
-    }
     filtered_messages = merged_messages[:current_user_idx + 1]
-    for msg in merged_messages[current_user_idx + 1:]:
-        if not isinstance(msg, dict):
-            filtered_messages.append(msg)
-            continue
-        if msg.get('role') == 'assistant':
-            key = _message_identity(msg)
-            if key is not None and key in prior_id_set:
+    if drop_replayed_assistant:
+        prior_id_set = {
+            _message_identity(msg)
+            for msg in merged_messages[:current_user_idx]
+            if isinstance(msg, dict)
+        }
+        for msg in merged_messages[current_user_idx + 1:]:
+            if not isinstance(msg, dict):
+                filtered_messages.append(msg)
                 continue
-        filtered_messages.append(msg)
+            if msg.get('role') == 'assistant':
+                key = _message_identity(msg)
+                if key is not None and key in prior_id_set:
+                    continue
+            filtered_messages.append(msg)
+    else:
+        filtered_messages.extend(merged_messages[current_user_idx + 1:])
     if current_user_key is not None:
         filtered_messages = [
             msg for msg in filtered_messages
@@ -8079,12 +8103,18 @@ def _run_agent_streaming(
                 )
                 _is_quota = _classification['type'] == 'quota_exhausted'
                 _is_auth = _classification['type'] == 'auth_mismatch'
+                _drop_replayed_assistant = (
+                    _agent_result_terminal_failure(result)
+                    or bool(getattr(agent, '_last_error', None))
+                    or ('error' in result)
+                )
                 _saved_transcript_lacks_final_answer = _merged_transcript_lacks_final_assistant_answer(
                     _previous_messages,
                     _previous_context_messages,
                     _all_result_messages,
                     msg_text,
                     source=getattr(s, 'pending_user_source', None) or 'webui',
+                    drop_replayed_assistant=_drop_replayed_assistant,
                 )
                 _terminal_failure = (
                     _agent_result_terminal_failure(result)

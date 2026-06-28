@@ -328,6 +328,35 @@ def test_auth_retry_success_does_not_append_error_turn(tmp_path, monkeypatch):
     assert not any(msg.get("_error") for msg in saved.messages)
 
 
+def test_success_repeated_assistant_text_stays_successful_current_turn(tmp_path, monkeypatch):
+    session = _prepare_session("repeat_success", "stream_repeat_success", pending_user_message="Please say it again")
+    _seed_prior_turn(
+        session,
+        prior_user="Earlier question",
+        prior_assistant="Same answer",
+    )
+
+    class RepeatedSuccessAgent(MockAgent):
+        def run_conversation(self, **kwargs):
+            history = list(kwargs.get("conversation_history") or [])
+            return {
+                "messages": history + [{"role": "assistant", "content": "Same answer"}],
+            }
+
+    fake_queue = _run_stream(monkeypatch, session, "stream_repeat_success", RepeatedSuccessAgent, workspace=str(tmp_path))
+    saved = Session.load("repeat_success")
+    assert saved is not None
+
+    assert any(msg.get("role") == "user" and msg.get("content") == "Please say it again" for msg in saved.messages)
+    assert saved.messages[-1]["role"] == "assistant"
+    assert saved.messages[-1]["content"] == "Same answer"
+    assert not any(msg.get("_error") for msg in saved.messages)
+
+    events = _queue_events(fake_queue)
+    assert any(event == "done" for event, _ in events)
+    assert not any(event == "apperror" for event, _ in events)
+
+
 def test_non_auth_silent_failure_still_uses_no_response(tmp_path, monkeypatch):
     session = _prepare_session("silent_failure", "stream_silent_failure", pending_user_message="Please handle silence")
 
