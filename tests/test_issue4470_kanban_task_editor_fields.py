@@ -51,7 +51,9 @@ def test_submit_reads_and_sends_max_runtime_as_integer():
     body = _submit_body()
     assert "kanbanTaskModalMaxRuntimeSeconds" in body
     assert "payload.max_runtime_seconds" in body
-    assert "parseInt" in body
+    assert "/^[1-9]\\d*$/" in body
+    assert "Number(maxRuntimeRaw)" in body
+    assert "kanban_max_runtime_invalid" in body
 
 
 def test_submit_reads_and_sends_parents_as_list():
@@ -122,6 +124,7 @@ def test_i18n_new_keys_in_all_locales():
         "kanban_skills_placeholder",
         "kanban_max_runtime_seconds",
         "kanban_max_runtime_hint",
+        "kanban_max_runtime_invalid",
         "kanban_parents_modal",
         "kanban_parents_placeholder",
     ]
@@ -137,9 +140,8 @@ def test_backend_already_accepts_new_fields():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_submit_payload_behavioral():
+def test_submit_payload_behavioral_and_validation():
     """Node.js execution: extract submitKanbanTaskModal and verify payload construction."""
-    # Find the full function body
     fn_start = PANELS_JS.find("async function submitKanbanTaskModal(")
     assert fn_start >= 0, "submitKanbanTaskModal not found"
     brace_start = PANELS_JS.index("{", fn_start)
@@ -157,19 +159,22 @@ def test_submit_payload_behavioral():
 
     harness = (
         "// Stub minimal DOM\n"
-        "const noop = () => {};\n"
+        "let lastFocused = null;\n"
+        "function field(id, value = '') {\n"
+        "  return { value, disabled: false, focus() { lastFocused = id; } };\n"
+        "}\n"
         "const elements = {\n"
-        "  kanbanTaskModalTitleInput: { value: 'Test Task', focus: noop },\n"
-        "  kanbanTaskModalBody: { value: '' },\n"
-        "  kanbanTaskModalStatus: { value: 'triage' },\n"
-        "  kanbanTaskModalAssignee: { value: 'agent1', focus: noop },\n"
-        "  kanbanTaskModalTenant: { value: '' },\n"
-        "  kanbanTaskModalPriority: { value: '0' },\n"
-        "  kanbanTaskModalWorkspaceKind: { value: 'scratch', disabled: false },\n"
-        "  kanbanTaskModalWorkspacePath: { value: '', disabled: false },\n"
-        "  kanbanTaskModalSkills: { value: 'python, git', disabled: false },\n"
-        "  kanbanTaskModalMaxRuntimeSeconds: { value: '120', disabled: false },\n"
-        "  kanbanTaskModalParents: { value: 't_abc', disabled: false },\n"
+        "  kanbanTaskModalTitleInput: field('kanbanTaskModalTitleInput', 'Test Task'),\n"
+        "  kanbanTaskModalBody: field('kanbanTaskModalBody', ''),\n"
+        "  kanbanTaskModalStatus: field('kanbanTaskModalStatus', 'triage'),\n"
+        "  kanbanTaskModalAssignee: field('kanbanTaskModalAssignee', 'agent1'),\n"
+        "  kanbanTaskModalTenant: field('kanbanTaskModalTenant', ''),\n"
+        "  kanbanTaskModalPriority: field('kanbanTaskModalPriority', '0'),\n"
+        "  kanbanTaskModalWorkspaceKind: field('kanbanTaskModalWorkspaceKind', 'scratch'),\n"
+        "  kanbanTaskModalWorkspacePath: field('kanbanTaskModalWorkspacePath', ''),\n"
+        "  kanbanTaskModalSkills: field('kanbanTaskModalSkills', 'python, git'),\n"
+        "  kanbanTaskModalMaxRuntimeSeconds: field('kanbanTaskModalMaxRuntimeSeconds', '120'),\n"
+        "  kanbanTaskModalParents: field('kanbanTaskModalParents', 't_abc'),\n"
         "  kanbanTaskModalError: { textContent: '', dataset: {} },\n"
         "  kanbanTaskModalSubmit: { disabled: false },\n"
         "};\n"
@@ -188,9 +193,41 @@ def test_submit_payload_behavioral():
         "let _kanbanTaskModalEditingId = null;\n"
         "let _kanbanTaskModalInitialDisplayedStatus = null;\n"
         + fn_body + "\n"
-        "submitKanbanTaskModal().then(() => {\n"
-        "  console.log(JSON.stringify(capturedPayload));\n"
-        "}).catch(e => { process.stderr.write(String(e)); process.exit(1); });\n"
+        "function resetForCase(maxRuntimeValue) {\n"
+        "  capturedPayload = null;\n"
+        "  lastFocused = null;\n"
+        "  elements.kanbanTaskModalError.textContent = '';\n"
+        "  delete elements.kanbanTaskModalError.dataset.warningShown;\n"
+        "  elements.kanbanTaskModalSubmit.disabled = false;\n"
+        "  elements.kanbanTaskModalTitleInput.value = 'Test Task';\n"
+        "  elements.kanbanTaskModalBody.value = '';\n"
+        "  elements.kanbanTaskModalStatus.value = 'triage';\n"
+        "  elements.kanbanTaskModalAssignee.value = 'agent1';\n"
+        "  elements.kanbanTaskModalTenant.value = '';\n"
+        "  elements.kanbanTaskModalPriority.value = '0';\n"
+        "  elements.kanbanTaskModalWorkspaceKind.value = 'scratch';\n"
+        "  elements.kanbanTaskModalWorkspacePath.value = '';\n"
+        "  elements.kanbanTaskModalSkills.value = 'python, git';\n"
+        "  elements.kanbanTaskModalMaxRuntimeSeconds.value = maxRuntimeValue;\n"
+        "  elements.kanbanTaskModalParents.value = 't_abc';\n"
+        "}\n"
+        "async function runCase(maxRuntimeValue) {\n"
+        "  resetForCase(maxRuntimeValue);\n"
+        "  await submitKanbanTaskModal();\n"
+        "  return {\n"
+        "    payload: capturedPayload,\n"
+        "    error: elements.kanbanTaskModalError.textContent,\n"
+        "    focused: lastFocused,\n"
+        "    submitDisabled: elements.kanbanTaskModalSubmit.disabled,\n"
+        "  };\n"
+        "}\n"
+        "(async () => {\n"
+        "  const results = [];\n"
+        "  for (const value of ['120', '', '0', '-5', '1.5', '1e2', 'abc']) {\n"
+        "    results.push(await runCase(value));\n"
+        "  }\n"
+        "  console.log(JSON.stringify(results));\n"
+        "})().catch(e => { process.stderr.write(String(e)); process.exit(1); });\n"
     )
 
     result = subprocess.run(
@@ -200,8 +237,23 @@ def test_submit_payload_behavioral():
     assert result.returncode == 0, f"Node error: {result.stderr}"
     output = result.stdout.strip()
     assert output, f"No payload captured. stderr: {result.stderr}"
-    payload = json.loads(output)
+    results = json.loads(output)
 
-    assert payload.get("skills") == ["python", "git"], f"skills wrong: {payload.get('skills')}"
-    assert payload.get("max_runtime_seconds") == 120, f"max_runtime wrong: {payload.get('max_runtime_seconds')}"
-    assert payload.get("parents") == ["t_abc"], f"parents wrong: {payload.get('parents')}"
+    valid, empty, zero, negative, decimal, scientific, alpha = results
+    valid_payload = valid["payload"]
+    assert valid_payload.get("skills") == ["python", "git"], f"skills wrong: {valid_payload.get('skills')}"
+    assert valid_payload.get("max_runtime_seconds") == 120, f"max_runtime wrong: {valid_payload.get('max_runtime_seconds')}"
+    assert valid_payload.get("parents") == ["t_abc"], f"parents wrong: {valid_payload.get('parents')}"
+    assert valid["error"] == ""
+    assert valid["focused"] is None
+
+    empty_payload = empty["payload"]
+    assert "max_runtime_seconds" not in empty_payload, f"empty max runtime should be omitted: {empty_payload}"
+    assert empty["error"] == ""
+    assert empty["focused"] is None
+
+    for invalid_case in (zero, negative, decimal, scientific, alpha):
+        assert invalid_case["payload"] is None, f"invalid runtime should not submit: {invalid_case}"
+        assert invalid_case["error"] == "kanban_max_runtime_invalid", f"wrong validation message: {invalid_case}"
+        assert invalid_case["focused"] == "kanbanTaskModalMaxRuntimeSeconds", f"wrong focus target: {invalid_case}"
+        assert invalid_case["submitDisabled"] is False, f"submit button should stay enabled: {invalid_case}"

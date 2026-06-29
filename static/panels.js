@@ -3005,8 +3005,15 @@ async function submitKanbanTaskModal(){
     if (skillsRaw) {
       payload.skills = skillsRaw.split(',').map(s => s.trim()).filter(Boolean);
     }
-    const maxRuntimeN = maxRuntimeRaw !== '' ? parseInt(maxRuntimeRaw, 10) : NaN;
-    if (!Number.isNaN(maxRuntimeN) && maxRuntimeN > 0) payload.max_runtime_seconds = maxRuntimeN;
+    if (maxRuntimeRaw) {
+      if (!/^[1-9]\d*$/.test(maxRuntimeRaw)) {
+        if (errEl) errEl.textContent = t('kanban_max_runtime_invalid')
+          || 'Max runtime must be a whole number of seconds greater than 0.';
+        if (maxRuntimeEl) maxRuntimeEl.focus();
+        return;
+      }
+      payload.max_runtime_seconds = Number(maxRuntimeRaw);
+    }
     if (parentsRaw) payload.parents = [parentsRaw];
   }
   // Soft warning: a Ready task with the explicit "Unassigned" option will sit
