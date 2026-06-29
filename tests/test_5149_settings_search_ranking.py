@@ -383,12 +383,12 @@ function setupDom(mode) {
 
   if (mode === 'title-vs-description') {
     conversation.appendChild(makeSettingsField({
-      labelText: 'Descriptor-only field',
-      descriptionI18nKey: 'settings_desc_priority_only',
-    }));
-    conversation.appendChild(makeSettingsField({
       labelText: 'Blob field',
       descriptionText: 'priority appears only in this plain-text fallback',
+    }));
+    conversation.appendChild(makeSettingsField({
+      labelText: 'Descriptor-only field',
+      descriptionI18nKey: 'settings_desc_priority_only',
     }));
     conversation.appendChild(makeSettingsField({
       labelText: 'Priority title field',
@@ -396,12 +396,12 @@ function setupDom(mode) {
     }));
   } else if (mode === 'value-vs-description') {
     conversation.appendChild(makeSettingsField({
-      labelText: 'Value-later field',
-      descriptionI18nKey: 'settings_desc_rank_only',
-    }));
-    conversation.appendChild(makeSettingsField({
       labelText: 'Blob value field',
       descriptionText: 'rank only lives in this plain-text fallback text',
+    }));
+    conversation.appendChild(makeSettingsField({
+      labelText: 'Value-later field',
+      descriptionI18nKey: 'settings_desc_rank_only',
     }));
     conversation.appendChild(makeSettingsField({
       labelText: 'Value field',
@@ -409,16 +409,16 @@ function setupDom(mode) {
     }));
   } else if (mode === 'same-tier-order') {
     conversation.appendChild(makeSettingsField({
+      labelText: 'Description-later-contains',
+      descriptionI18nKey: 'settings_desc_needle_contains_late',
+    }));
+    conversation.appendChild(makeSettingsField({
       labelText: 'Description-prefix',
       descriptionI18nKey: 'settings_desc_needle_prefix',
     }));
     conversation.appendChild(makeSettingsField({
       labelText: 'Description-earlier-contains',
       descriptionI18nKey: 'settings_desc_needle_contains_early',
-    }));
-    conversation.appendChild(makeSettingsField({
-      labelText: 'Description-later-contains',
-      descriptionI18nKey: 'settings_desc_needle_contains_late',
     }));
   } else if (mode === 'label-rendering') {
     conversation.appendChild(makeSettingsField({
