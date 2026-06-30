@@ -100,7 +100,7 @@ def test_openai_tts_success_returns_audio(monkeypatch):
         return _StreamOnceResponse([b"audio-openai"])
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setattr(routes, "_tts_open", lambda req, **kw: _fake_urlopen(req))
     h = _post({"text": "Hello", "engine": "openai"}, client="10.82.0.2")
     routes._handle_tts(h, None)
 
@@ -121,7 +121,7 @@ def test_openai_tts_prefers_voice_tools_key_over_openai_key(monkeypatch):
 
     monkeypatch.setenv("VOICE_TOOLS_OPENAI_KEY", "sk-voice-tools")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setattr(routes, "_tts_open", lambda req, **kw: _fake_urlopen(req))
     h = _post({"text": "Hello", "engine": "openai"}, client="10.82.0.3")
     routes._handle_tts(h, None)
 
@@ -142,7 +142,7 @@ def test_openai_tts_config_overrides(monkeypatch):
     monkeypatch.setattr(config, "get_config", lambda: {
         "tts": {"openai": {"base_url": "https://custom.example.com/v1/", "model": "tts-custom", "voice": "nova"}}
     })
-    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setattr(routes, "_tts_open", lambda req, **kw: _fake_urlopen(req))
     h = _post({"text": "Hello", "engine": "openai"}, client="10.82.0.4")
     routes._handle_tts(h, None)
 
@@ -185,11 +185,36 @@ def test_openai_tts_rejects_non_audio_upstream_response(monkeypatch):
         )
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setattr(routes, "_tts_open", lambda req, **kw: _fake_urlopen(req))
     h = _post({"text": "Hello", "engine": "openai"}, client="10.82.0.6")
     routes._handle_tts(h, None)
 
     assert h.status == 502
+    assert "OpenAI TTS generation failed" in (h.payload() or {}).get("error", "")
+
+
+def test_openai_tts_does_not_follow_upstream_redirect(monkeypatch):
+    # SSRF / credential-leak regression (#5079 gate): an upstream redirect must
+    # NOT be followed — following it would carry the Authorization bearer to the
+    # redirect target and could bounce the request to a private/link-local host
+    # after base-url validation already passed. The no-redirect opener raises,
+    # which surfaces as a 502 (generation failed), never a second request.
+    import urllib.error
+
+    def _redirecting_open(req, **kw):
+        # Simulate urllib raising on a redirect the way HTTPRedirectHandler would
+        # when redirect_request() raises (the no-redirect handler's behavior).
+        raise urllib.error.HTTPError(
+            req.full_url, 302, "Found",
+            {"Location": "http://169.254.169.254/v1/audio/speech"}, None,
+        )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setattr(routes, "_tts_open", _redirecting_open)
+    h = _post({"text": "Hello", "engine": "openai"}, client="10.82.0.9")
+    routes._handle_tts(h, None)
+
+    assert h.status in (500, 502)
     assert "OpenAI TTS generation failed" in (h.payload() or {}).get("error", "")
 
 
@@ -199,7 +224,7 @@ def test_openai_tts_rejects_oversized_upstream_audio(monkeypatch):
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
     monkeypatch.setattr(routes, "_TTS_PROXY_MAX_BYTES", 4)
-    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setattr(routes, "_tts_open", lambda req, **kw: _fake_urlopen(req))
     h = _post({"text": "Hello", "engine": "openai"}, client="10.82.0.7")
     routes._handle_tts(h, None)
 

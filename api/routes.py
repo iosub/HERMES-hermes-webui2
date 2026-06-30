@@ -14880,6 +14880,21 @@ def _buffer_tts_audio_response(resp, *, max_bytes: int | None = None) -> bytes:
     return bytes(audio_data)
 
 
+def _tts_open(req, *, timeout=30, opener_factory=None):
+    """Thin network seam for the TTS upstream fetch so tests can intercept it.
+
+    Defaults to a no-redirect opener (built by opener_factory) so an upstream
+    redirect can't carry the Authorization bearer to — or SSRF-bounce the
+    request into — a different/private target after base-url validation passed.
+    Tests monkeypatch this function (or urllib.request.urlopen) to inject a
+    stub response."""
+    if opener_factory is not None:
+        opener = opener_factory()
+        return opener.open(req, timeout=timeout)
+    from urllib.request import urlopen as _urlopen
+    return _urlopen(req, timeout=timeout)
+
+
 def _handle_tts(handler, parsed):
     """Generate TTS audio via supported server TTS engines. POST JSON body only.
 
@@ -15115,7 +15130,17 @@ def _handle_tts(handler, parsed):
             "voice": oai_voice,
         }).encode("utf-8")
 
-        from urllib.request import Request, urlopen as _urlopen
+        from urllib.request import Request, build_opener, HTTPRedirectHandler, urlopen as _urlopen
+
+        class _NoRedirectTtsHandler(HTTPRedirectHandler):
+            """Refuse to follow redirects on the TTS call. A redirect is never a
+            legitimate response to a POST /audio/speech, and following one would
+            (a) carry the Authorization bearer to the redirect target and
+            (b) let a public host bounce the request to a private/link-local
+            SSRF target after the base-url validation already passed."""
+
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                raise ValueError("OpenAI TTS upstream attempted a redirect")
 
         req = Request(url, data=req_body, headers={
             "Authorization": f"Bearer {api_key}",
@@ -15123,8 +15148,11 @@ def _handle_tts(handler, parsed):
             "Accept": "audio/mpeg",
         })
 
+        # Use a no-redirect opener so an upstream redirect can't carry the bearer
+        # to (or SSRF-bounce into) a different/private target. _tts_open is a thin
+        # module seam so tests can still intercept the network call.
         try:
-            with _urlopen(req, timeout=30) as resp:
+            with _tts_open(req, timeout=30, opener_factory=lambda: build_opener(_NoRedirectTtsHandler())) as resp:
                 audio_data = _buffer_tts_audio_response(resp)
         except ValueError:
             logger.warning("OpenAI TTS rejected an invalid upstream response", exc_info=True)
