@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- **Native OIDC login for WebUI sessions.** WebUI can now authenticate via an OpenID Connect provider (authorization-code + PKCE), with hardened token validation: HTTPS-only discovery/JWKS with private/loopback/link-local/reserved targets rejected, alg/curve pinning (RS/ES/HS/none confusion rejected), issuer + audience + nonce + state checks, JWKS kid rotation, and strict expiry validation. Thanks @rodboev. (#5012, #3825)
+
 - **Hardened the embedded terminal against unauthenticated access when auth is disabled.** The embedded-terminal endpoints (start / input / resize / close / output) are now gated to local-origin requests when WebUI auth is not enabled, closing an access gap on network-exposed instances. Authenticated and local use is unaffected.  (#5268)
 
 - **Docker build no longer fails when `/opt/hermes` contains a `.playwright/` directory.** The agent-source staging step now excludes `.playwright` in both the `rsync` and `cp -a` fallback paths, fixing `rsync error code 23` during the build. Thanks @enihcam. (#5316, fixes #5315)
